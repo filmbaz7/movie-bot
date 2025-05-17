@@ -1,50 +1,53 @@
 <?php
+$TOKEN = "7690458225:AAFfMN5mn0i4P1vKejr8W6_H_tfDiX49LIA";
+$API_URL = "https://api.telegram.org/bot$TOKEN/";
 
-$token = "7690458225:AAFfMN5mn0i4P1vKejr8W6_H_tfDiX49LIA";
-$content = file_get_contents("php://input");
-$update = json_decode($content, true);
-
-if (!$update || !isset($update["message"])) exit;
-
+$update = json_decode(file_get_contents("php://input"), TRUE);
 $chat_id = $update["message"]["chat"]["id"];
-$text = $update["message"]["text"];
+$text = strtolower($update["message"]["text"]);
 
-if (strtolower($text) == "فیلم") {
-    sendMovies($chat_id);
-} else {
-    sendMessage($chat_id, "برای دریافت فیلم جدید فقط بنویس: فیلم");
-}
-
-// تابع ارسال پیام متنی
 function sendMessage($chat_id, $text) {
-    global $token;
-    $url = "https://api.telegram.org/bot$token/sendMessage";
-    file_get_contents($url . "?chat_id=$chat_id&text=" . urlencode($text));
+    global $API_URL;
+    file_get_contents($API_URL . "sendMessage?chat_id=" . $chat_id . "&text=" . urlencode($text));
 }
 
-// تابع ارسال عکس با کپشن
 function sendPhoto($chat_id, $photo_url, $caption) {
-    global $token;
-    $url = "https://api.telegram.org/bot$token/sendPhoto";
-    file_get_contents($url . "?chat_id=$chat_id&photo=" . urlencode($photo_url) . "&caption=" . urlencode($caption));
+    global $API_URL;
+    $post_fields = array(
+        'chat_id' => $chat_id,
+        'photo' => $photo_url,
+        'caption' => $caption
+    );
+
+    $ch = curl_init(); 
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+        "Content-Type:multipart/form-data"
+    ));
+    curl_setopt($ch, CURLOPT_URL, $API_URL . "sendPhoto");
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields);
+    $output = curl_exec($ch);
 }
 
-// تابع دریافت فیلم‌ها از سایت
-function sendMovies($chat_id) {
+function getLatestMovie() {
     $html = file_get_contents("https://www.film2movie.asia/");
-    preg_match_all('/<div class="postbox">(.*?)<\/div>/s', $html, $matches);
+    preg_match('/<div class="postbox">.*?<a href="(.*?)".*?<img src="(.*?)".*?title="(.*?)"/s', $html, $matches);
+    return [
+        "link" => $matches[1] ?? '',
+        "image" => $matches[2] ?? '',
+        "title" => html_entity_decode($matches[3] ?? '', ENT_QUOTES, 'UTF-8')
+    ];
+}
 
-    if (!empty($matches[1])) {
-        $first = $matches[1][0];
-
-        preg_match('/<img.*?src="(.*?)"/', $first, $img);
-        preg_match('/<h2 class="title">(.*?)<\/h2>/', $first, $title);
-        preg_match('/<a href="(.*?)"/', $first, $link);
-
-        $caption = "🎬 عنوان: " . strip_tags($title[1]) . "\n🔗 لینک: " . $link[1];
-        sendPhoto($chat_id, $img[1], $caption);
+if ($text == "/start") {
+    sendMessage($chat_id, "سلام! برای دریافت فیلم جدید، بنویس: فیلم");
+} elseif ($text == "فیلم") {
+    $movie = getLatestMovie();
+    if ($movie["title"]) {
+        $caption = $movie["title"] . "\n" . $movie["link"];
+        sendPhoto($chat_id, $movie["image"], $caption);
     } else {
-        sendMessage($chat_id, "❌ نتونستم اطلاعات فیلم رو دریافت کنم.");
+        sendMessage($chat_id, "مشکلی در دریافت اطلاعات فیلم پیش آمد.");
     }
 }
 ?>
