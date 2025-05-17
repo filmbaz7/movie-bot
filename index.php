@@ -1,128 +1,126 @@
 <?php
-// توکن ربات تلگرام خودت
+// توکن ربات رو اینجا بذار
 define('BOT_TOKEN', '7690458225:AAFfMN5mn0i4P1vKejr8W6_H_tfDiX49LIA');
 
-// تابع ارسال پیام متنی
-function sendMessage($chat_id, $text) {
-    $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendMessage";
-    $data = [
+// توابع کمکی برای ارسال پیام
+function sendMessage($chat_id, $text, $parse_mode = 'HTML') {
+    $url = "https://api.telegram.org/bot".BOT_TOKEN."/sendMessage";
+    $post_fields = [
         'chat_id' => $chat_id,
         'text' => $text,
-        'parse_mode' => 'HTML',
+        'parse_mode' => $parse_mode,
         'disable_web_page_preview' => true,
     ];
-    $options = [
-        'http' => [
-            'header' => "Content-type: application/x-www-form-urlencoded\r\n",
-            'method' => 'POST',
-            'content' => http_build_query($data),
-        ],
-    ];
-    $context = stream_context_create($options);
-    file_get_contents($url, false, $context);
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_POST, 1);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields);
+    $result = curl_exec($ch);
+    curl_close($ch);
+    return $result;
 }
 
-// تابع ارسال عکس همراه کپشن
-function sendPhoto($chat_id, $photo_url, $caption) {
-    $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendPhoto";
+function sendPhoto($chat_id, $photo_url, $caption = '') {
+    $url = "https://api.telegram.org/bot".BOT_TOKEN."/sendPhoto";
     $post_fields = [
         'chat_id' => $chat_id,
         'photo' => $photo_url,
         'caption' => $caption,
-        'parse_mode' => 'HTML',
+        'parse_mode' => 'HTML'
     ];
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type:multipart/form-data"]);
     curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_POST, 1);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields);
-    curl_exec($ch);
+    $result = curl_exec($ch);
     curl_close($ch);
+    return $result;
 }
 
-// تابع گرفتن محتوای صفحه
-function getPageContent($url) {
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0');
-    $data = curl_exec($ch);
-    curl_close($ch);
-    return $data;
+// تابع برای گرفتن HTML صفحه فیلم‌ها
+function getHtml($url) {
+    $options = [
+        'http' => [
+            'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
+        ]
+    ];
+    $context = stream_context_create($options);
+    return file_get_contents($url, false, $context);
 }
 
 // تابع استخراج 20 فیلم اول
-function extractMovies($html) {
+function getTop20Movies() {
+    $html = getHtml('https://www.film2movie.asia/category/movies/');
+
+    if (!$html) return false;
+
     $movies = [];
+
+    // استفاده از DOMDocument برای پارس کردن HTML
     libxml_use_internal_errors(true);
     $dom = new DOMDocument();
     $dom->loadHTML($html);
     libxml_clear_errors();
+
     $xpath = new DOMXPath($dom);
 
-    $items = $xpath->query("//div[contains(@class, 'item')]");
+    // سلکتور فیلم‌ها (بسته به ساختار سایت)
+    // بررسی می‌کنیم که فیلم‌ها داخل div با کلاس "post" هستند
+    $posts = $xpath->query("//div[contains(@class,'post')]");
 
-    foreach ($items as $index => $item) {
-        if ($index >= 20) break;
+    if ($posts->length == 0) return false;
 
-        $img = $xpath->query(".//img", $item);
-        $img_src = ($img->length > 0) ? $img->item(0)->getAttribute('src') : '';
+    $count = 0;
+    foreach ($posts as $post) {
+        if ($count >= 20) break;
 
-        $titleNode = $xpath->query(".//h3//a", $item);
-        $title = ($titleNode->length > 0) ? trim($titleNode->item(0)->nodeValue) : 'بدون عنوان';
+        // لینک فیلم
+        $a = $xpath->query(".//a", $post)->item(0);
+        $href = $a ? $a->getAttribute('href') : '';
 
-        $link = ($titleNode->length > 0) ? $titleNode->item(0)->getAttribute('href') : '';
+        // عنوان فیلم
+        $title = $a ? trim($a->textContent) : '';
 
-        $movies[] = [
-            'title' => $title,
-            'link' => $link,
-            'img' => $img_src,
-        ];
+        // عکس فیلم
+        $img = $xpath->query(".//img", $post)->item(0);
+        $img_url = $img ? $img->getAttribute('src') : '';
+
+        if ($href && $title && $img_url) {
+            $movies[] = [
+                'title' => $title,
+                'link' => $href,
+                'img' => $img_url
+            ];
+            $count++;
+        }
     }
     return $movies;
 }
 
-// دریافت ورودی پیام تلگرام
+// دریافت آپدیت‌ها از تلگرام
 $content = file_get_contents("php://input");
 $update = json_decode($content, true);
 
-if (!$update) {
-    // چیزی دریافت نشده
-    exit;
-}
+if (!$update) exit;
 
-if (isset($update['message'])) {
-    $message = $update['message'];
-    $chat_id = $message['chat']['id'];
-    $text = trim($message['text'] ?? '');
+$chat_id = $update['message']['chat']['id'] ?? null;
+$text = $update['message']['text'] ?? '';
 
-    if ($text === "/start") {
-        sendMessage($chat_id, "در حال دریافت اطلاعات 20 فیلم اول، لطفا چند لحظه صبر کنید...");
+if ($text == '/start') {
+    sendMessage($chat_id, "در حال دریافت اطلاعات 20 فیلم اول، لطفا چند لحظه صبر کنید...");
 
-        $html = getPageContent("https://www.film2movie.asia/category/movies/");
+    $movies = getTop20Movies();
 
-        if (!$html) {
-            sendMessage($chat_id, "خطا در دریافت صفحه فیلم‌ها.");
-            exit;
-        }
+    if (!$movies) {
+        sendMessage($chat_id, "متاسفانه نتوانستم اطلاعات فیلم‌ها را پیدا کنم.");
+        exit;
+    }
 
-        $movies = extractMovies($html);
-
-        if (count($movies) == 0) {
-            sendMessage($chat_id, "متاسفانه نتوانستم اطلاعات فیلم‌ها را پیدا کنم.");
-            exit;
-        }
-
-        foreach ($movies as $movie) {
-            $caption = "<b>" . htmlspecialchars($movie['title']) . "</b>\n" .
-                       "<a href='" . htmlspecialchars($movie['link']) . "'>لینک فیلم</a>";
-
-            sendPhoto($chat_id, $movie['img'], $caption);
-            // برای جلوگیری از ارسال سریع و احتمالی بلاک شدن، میتونی اینجا usleep(500000); بزاری (نیم ثانیه)
-        }
-    } else {
-        sendMessage($chat_id, "سلام! برای دریافت 20 فیلم اول، لطفا دستور /start را ارسال کنید.");
+    foreach ($movies as $movie) {
+        $caption = "<b>".$movie['title']."</b>\n"."<a href='".$movie['link']."'>مشاهده فیلم</a>";
+        sendPhoto($chat_id, $movie['img'], $caption);
+        usleep(300000); // کمی توقف برای جلوگیری از محدودیت تلگرام
     }
 }
-?>
