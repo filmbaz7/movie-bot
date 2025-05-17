@@ -38,8 +38,9 @@ if ($text === 'فیلم') {
 
     $xpath = new DOMXPath($dom);
 
-    // گرفتن 20 فیلم اول
-    $movies = $xpath->query("//div[contains(@class,'jeg_post')]");
+    // گرفتن 20 فیلم اول داخل article با کلاس jeg_post
+    $movies = $xpath->query("//article[contains(@class,'jeg_post')]");
+
     if ($movies->length == 0) {
         sendMessage($chatId, "متاسفانه نتوانستم اطلاعات فیلم را پیدا کنم.");
         exit();
@@ -70,7 +71,6 @@ if ($text === 'فیلم') {
         }
 
         $count++;
-        // یک ثانیه صبر کن برای جلوگیری از محدودیت تلگرام
         sleep(1);
     }
     exit();
